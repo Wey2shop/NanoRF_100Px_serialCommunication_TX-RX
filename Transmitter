@@ -1,0 +1,63 @@
+#include <SPI.h>
+#include <RF24.h>
+
+// How many channels Vixen will control
+#define MAX_CHANNELS 300
+
+// Number of pixels on the receiving end
+#define NUM_LEDS 100
+
+// Number of bytes in each packet
+#define PACKET_SIZE 30
+
+// Stores the value of each channel
+byte outgoingByte[MAX_CHANNELS];
+
+// Uses SPI bus + two digital pins for chip enable (CE) and chip select (CSN)
+RF24 radio(9, 10);
+
+// An address used by the transmitter and receiver
+byte addresses[][6] = {"Vixen1"};
+
+void setup() {
+  Serial.begin(115200);
+
+  radio.begin();
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setDataRate(RF24_2MBPS);
+  radio.setChannel(124);
+  radio.openWritingPipe(addresses[0]);
+}
+
+void loop() {
+  // Keeps track of place in byte array and how many channels are left to be read
+  unsigned int remaining;
+  unsigned int channel;
+
+  for (;;) {
+    // Header character is used to keep the Arduino in sync with first channel as Vixen sequentially
+    // writes out each byte for every channel.
+    while (!Serial.available());
+    if (Serial.read() != '>') {
+      continue;
+    }
+
+    remaining = MAX_CHANNELS;
+    channel = 0;
+
+    // Split data into packets and send over RF24 module
+    while (remaining > 0) {
+      byte packet[PACKET_SIZE];
+      unsigned int packetRemaining = min(PACKET_SIZE, remaining);
+
+      for (unsigned int i = 0; i < packetRemaining; i++) {
+        while (!Serial.available());
+        packet[i] = Serial.read();
+        channel++;
+        remaining--;
+      }
+
+      radio.write(&packet, sizeof(packet));
+    }
+  }
+}
