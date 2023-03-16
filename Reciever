@@ -1,0 +1,73 @@
+#include <FastLED.h>
+#include <RF24.h>
+
+#define DATA_PIN 6
+#define NUM_LEDS 100
+CRGB leds[NUM_LEDS];
+
+RF24 radio(9, 10);
+
+byte addresses[][6] = {"Vixen1"};
+
+// Define packet size and buffer
+const uint8_t PACKET_SIZE = 10; // Number of channels per packet
+byte incomingPacket[PACKET_SIZE * 3]; // 3 bytes per channel (R, G, B)
+
+void setup() {
+  Serial.begin(115200);
+  FastLED.addLeds<WS2812B, DATA_PIN, RGB>(leds, NUM_LEDS);
+  
+  radio.begin();
+  radio.setPALevel(RF24_PA_MAX);
+  radio.setDataRate(RF24_2MBPS);
+  radio.setChannel(124);
+  radio.openReadingPipe(0, addresses[0]);
+  radio.startListening();
+}
+
+void loop() {
+  static uint8_t packetIndex = 0;
+  static uint8_t totalPackets = NUM_LEDS / PACKET_SIZE;
+  static uint8_t packetCounter = 0;
+  static uint16_t channelIndex = 0;
+
+  if (radio.available()) {
+    radio.read(&incomingPacket, sizeof(incomingPacket));
+
+ // Remove the header character from the incoming data
+    for (int i = 0; i < PACKET_SIZE * 3; i++) {
+      if (incomingPacket[i] == '>') {
+        incomingPacket[i] = 0;
+        break;
+      }
+    }
+
+    // Calculate the starting index of the LED array for the current packet
+    uint8_t startIndex = packetIndex * PACKET_SIZE;
+
+    // Calculate the number of channels to copy from the packet to the LED array
+    uint8_t channelsToCopy = min(PACKET_SIZE, NUM_LEDS - startIndex);
+
+    // Copy the channel data from the packet to the LED array
+    for (int i = 0; i < channelsToCopy; i++) {
+      int channel = i * 3;
+      byte r = incomingPacket[channel];
+      byte g = incomingPacket[channel + 1];
+      byte b = incomingPacket[channel + 2];
+      leds[startIndex + i] = CRGB(r, g, b);
+    }
+
+    // Update the packet index and channel index counters
+    packetIndex++;
+    channelIndex += channelsToCopy;
+
+    // If we have processed all packets for the current channel, reset the counters and update the LED strip
+    if (packetIndex >= totalPackets) {
+      packetIndex = 0;
+      channelIndex = 0;
+      FastLED.show();
+    }
+  }
+
+  // Other tasks to perform during each iteration of the loop can be added here.
+}
